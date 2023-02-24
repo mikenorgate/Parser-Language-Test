@@ -62,7 +62,7 @@ func (parser *Parser) ParseConcurrent(r io.ReadCloser) ([]Title, error) {
 	}}
 
 	reader := func(ctx context.Context) <-chan []string {
-		out := make(chan []string)
+		out := make(chan []string, 100)
 
 		scanner := bufio.NewScanner(r)
 
@@ -98,7 +98,7 @@ func (parser *Parser) ParseConcurrent(r io.ReadCloser) ([]Title, error) {
 	}
 
 	worker := func(ctx context.Context, rowBatch <-chan []string) <-chan []Title {
-		out := make(chan []Title)
+		out := make(chan []Title, 100)
 
 		go func() {
 			defer close(out)
@@ -128,7 +128,7 @@ func (parser *Parser) ParseConcurrent(r io.ReadCloser) ([]Title, error) {
 	}
 
 	combiner := func(ctx context.Context, inputs ...<-chan []Title) <-chan []Title {
-		out := make(chan []Title)
+		out := make(chan []Title, 100)
 
 		var wg sync.WaitGroup
 		multiplexer := func(p <-chan []Title) {
