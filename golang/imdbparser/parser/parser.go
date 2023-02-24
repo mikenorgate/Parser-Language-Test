@@ -29,17 +29,17 @@ func (parser *Parser) Parse(reader io.ReadCloser) ([]Title, error) {
 		if len(columns) != 9 {
 			return nil, fmt.Errorf("error processing")
 		}
-		results[i] = Title{
-			TConst:         columns[0],
-			TitleType:      columns[1],
-			PrimaryTitle:   columns[2],
-			OriginalTitle:  columns[3],
-			IsAdult:        columns[4],
-			StartYear:      columns[5],
-			EndYear:        columns[6],
-			RuntimeMinutes: columns[7],
-			Genres:         columns[8],
-		}
+		current := &results[i]
+		current.TConst = columns[0]
+		current.TitleType = columns[1]
+		current.PrimaryTitle = columns[2]
+		current.OriginalTitle = columns[3]
+		current.IsAdult = columns[4]
+		current.StartYear = columns[5]
+		current.EndYear = columns[6]
+		current.RuntimeMinutes = columns[7]
+		current.Genres = columns[8]
+
 		total++
 	}
 
@@ -102,22 +102,21 @@ func (parser *Parser) ParseConcurrent(r io.ReadCloser) ([]Title, error) {
 			defer close(out)
 
 			for rowBatch := range rowBatch {
-				tiles := titlePool.Get().([]Title)
+				titles := titlePool.Get().([]Title)
 				for i, row := range rowBatch {
 					columns := strings.Split(row, "\t")
-					tiles[i] = Title{
-						TConst:         columns[0],
-						TitleType:      columns[1],
-						PrimaryTitle:   columns[2],
-						OriginalTitle:  columns[3],
-						IsAdult:        columns[4],
-						StartYear:      columns[5],
-						EndYear:        columns[6],
-						RuntimeMinutes: columns[7],
-						Genres:         columns[8],
-					}
+					current := &titles[i]
+					current.TConst = columns[0]
+					current.TitleType = columns[1]
+					current.PrimaryTitle = columns[2]
+					current.OriginalTitle = columns[3]
+					current.IsAdult = columns[4]
+					current.StartYear = columns[5]
+					current.EndYear = columns[6]
+					current.RuntimeMinutes = columns[7]
+					current.Genres = columns[8]
 				}
-				out <- tiles[0:len(rowBatch)]
+				out <- titles[0:len(rowBatch)]
 				rowPool.Put(rowBatch)
 			}
 		}()
