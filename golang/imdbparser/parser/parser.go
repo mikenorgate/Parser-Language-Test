@@ -24,7 +24,7 @@ func (parser *Parser) Parse(reader io.ReadCloser) ([]Title, error) {
 
 	results := make([]Title, len(lines))
 	total := 0
-	for i, line := range lines {
+	for i, line := range lines[1:] {
 		columns := strings.Split(line, "\t")
 		if len(columns) != 9 {
 			return nil, fmt.Errorf("error processing")
