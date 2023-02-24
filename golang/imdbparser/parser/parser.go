@@ -19,14 +19,12 @@ func (parser *Parser) Parse(reader io.ReadCloser) ([]Title, error) {
 		return nil, err
 	}
 	data := string(bytes)
+	data = strings.TrimSpace(data)
 	lines := strings.Split(data, "\n")
 
 	results := make([]Title, len(lines))
 	total := 0
 	for i, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
 		columns := strings.Split(line, "\t")
 		if len(columns) != 9 {
 			return nil, fmt.Errorf("error processing")
