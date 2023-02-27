@@ -1,12 +1,9 @@
 package parser
 
 import (
-	"bufio"
-	"context"
-	"fmt"
+	b "bytes"
 	"io"
-	"strings"
-	"sync"
+	"math"
 )
 
 type Parser struct {
@@ -14,160 +11,52 @@ type Parser struct {
 
 func (parser *Parser) Parse(reader io.ReadCloser) ([]Title, error) {
 	defer reader.Close()
-	bytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-	data := string(bytes)
-	data = strings.TrimSpace(data)
-	lines := strings.Split(data, "\n")
 
+	buf := new(b.Buffer)
+	io.Copy(buf, reader)
+	bytes := buf.Bytes()
+
+	bytes = b.TrimRight(bytes, "\n ")
+	lines := b.Split(bytes, []byte("\n"))
 	results := make([]Title, len(lines))
-	total := 0
-	for i, line := range lines[1:] {
-		columns := strings.Split(line, "\t")
-		if len(columns) != 9 {
-			return nil, fmt.Errorf("error processing")
-		}
-		current := &results[i]
-		current.TConst = columns[0]
-		current.TitleType = columns[1]
-		current.PrimaryTitle = columns[2]
-		current.OriginalTitle = columns[3]
-		current.IsAdult = columns[4]
-		current.StartYear = columns[5]
-		current.EndYear = columns[6]
-		current.RuntimeMinutes = columns[7]
-		current.Genres = columns[8]
 
-		total++
+	worker := func(start int, end int) <-chan bool {
+		out := make(chan bool)
+
+		go func() {
+			defer close(out)
+			for i, line := range lines[start:end] {
+				columns := b.Split(line, []byte("\t")) //strings.Split(line, "\t")
+				current := &results[start+i]
+				current.TConst = string(columns[0])
+				current.TitleType = string(columns[1])
+				current.PrimaryTitle = string(columns[2])
+				current.OriginalTitle = string(columns[3])
+				current.IsAdult = string(columns[4])
+				current.StartYear = string(columns[5])
+				current.EndYear = string(columns[6])
+				current.RuntimeMinutes = string(columns[7])
+				current.Genres = string(columns[8])
+			}
+
+			out <- true
+		}()
+
+		return out
 	}
 
-	return results[:total], nil
-}
-
-func (parser *Parser) ParseConcurrent(r io.ReadCloser) ([]Title, error) {
-	batchSize := 100000
 	numWorkers := 8
-	defer r.Close()
-
-	rowPool := sync.Pool{New: func() interface{} {
-		return make([]string, batchSize)
-	}}
-
-	titlePool := sync.Pool{New: func() interface{} {
-		return make([]Title, batchSize)
-	}}
-
-	reader := func(ctx context.Context) <-chan []string {
-		out := make(chan []string, 100)
-
-		scanner := bufio.NewScanner(r)
-
-		go func() {
-			defer close(out)
-
-			rowsBatch := rowPool.Get().([]string)
-			i := 0
-			for {
-				scanned := scanner.Scan()
-
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					row := scanner.Text()
-					if i == len(rowsBatch) || !scanned {
-						out <- rowsBatch[0:i]
-						rowsBatch = rowPool.Get().([]string)
-						i = 0
-					}
-					rowsBatch[i] = row
-					i++
-				}
-
-				if !scanned {
-					return
-				}
-			}
-		}()
-
-		return out
-	}
-
-	worker := func(ctx context.Context, rowBatch <-chan []string) <-chan []Title {
-		out := make(chan []Title, 100)
-
-		go func() {
-			defer close(out)
-
-			for rowBatch := range rowBatch {
-				titles := titlePool.Get().([]Title)
-				for i, row := range rowBatch {
-					columns := strings.Split(row, "\t")
-					current := &titles[i]
-					current.TConst = columns[0]
-					current.TitleType = columns[1]
-					current.PrimaryTitle = columns[2]
-					current.OriginalTitle = columns[3]
-					current.IsAdult = columns[4]
-					current.StartYear = columns[5]
-					current.EndYear = columns[6]
-					current.RuntimeMinutes = columns[7]
-					current.Genres = columns[8]
-				}
-				out <- titles[0:len(rowBatch)]
-				rowPool.Put(rowBatch)
-			}
-		}()
-
-		return out
-	}
-
-	combiner := func(ctx context.Context, inputs ...<-chan []Title) <-chan []Title {
-		out := make(chan []Title, 100)
-
-		var wg sync.WaitGroup
-		multiplexer := func(p <-chan []Title) {
-			defer wg.Done()
-
-			for in := range p {
-				select {
-				case <-ctx.Done():
-				case out <- in:
-				}
-			}
-		}
-
-		wg.Add(len(inputs))
-		for _, in := range inputs {
-			go multiplexer(in)
-		}
-
-		go func() {
-			wg.Wait()
-			close(out)
-		}()
-
-		return out
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	rowCh := reader(ctx)
-
-	workerCh := make([]<-chan []Title, numWorkers)
+	processChan := make([]<-chan bool, numWorkers)
+	chunkSize := int(math.Ceil(float64(len(lines)) / float64(numWorkers)))
 	for i := 0; i < numWorkers; i++ {
-		workerCh[i] = worker(ctx, rowCh)
+		start := (i * chunkSize) + 1
+		end := int(math.Min(float64(start)+float64(chunkSize), float64(len(lines))))
+		processChan[i] = worker(start, end)
 	}
 
-	var result []Title
-
-	for processed := range combiner(ctx, workerCh...) {
-		result = append(result, processed...)
-		titlePool.Put(processed)
+	for _, c := range processChan {
+		<-c
 	}
 
-	return result, nil
+	return results, nil
 }
